@@ -5,54 +5,47 @@ import streamlit as st
 def parse_toc(content: str) -> str:
     """
     Parse LaTeX .toc content and return a plain-text representation.
-    Supports nested braces and extracts numbering from \numberline commands.
+    This handles nested braces by matching braces manually for each argument.
     """
-    indent_map = {'section': 0, 'subsection': 1, 'subsubsection': 2}
-
-    def extract_group(s: str, start: int):
-        # Extract text inside matching braces starting at s[start] == '{'
-        if s[start] != '{':
-            raise ValueError("Expected '{' at position {}".format(start))
-        depth = 0
-        for i in range(start, len(s)):
-            if s[i] == '{':
-                depth += 1
-            elif s[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    return s[start+1:i], i + 1
-        raise ValueError("No matching '}' found")
-
     lines_out = []
-    for line in content.splitlines():
-        l = line.strip()
-        if not l.startswith(r'\\contentsline'):
+    indent_map = {'chapter': 0, 'section': 0, 'subsection': 1, 'subsubsection': 2}
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line.startswith(r'\\contentsline'):
             continue
-        try:
-            # Parse the four brace groups: type, raw_title, page, label
-            pos = l.find('{')
-            entry_type, pos = extract_group(l, pos)
-            # Skip to next group
-            while pos < len(l) and l[pos].isspace():
-                pos += 1
-            raw_title, pos = extract_group(l, pos)
-            while pos < len(l) and l[pos].isspace():
-                pos += 1
-            page, pos = extract_group(l, pos)
-        except Exception:
+        # Extract the first three brace-delimited arguments robustly
+        args = []
+        idx = line.find('{', line.find('\\contentsline') + len('\\contentsline'))
+        while len(args) < 3 and idx != -1:
+            brace_level = 0
+            start = None
+            for j in range(idx, len(line)):
+                if line[j] == '{':
+                    if brace_level == 0:
+                        start = j + 1
+                    brace_level += 1
+                elif line[j] == '}':
+                    brace_level -= 1
+                    if brace_level == 0 and start is not None:
+                        end = j
+                        break
+            else:
+                break  # unmatched braces
+            args.append(line[start:end])
+            idx = line.find('{', end + 1)
+        if len(args) < 3:
             continue
-
-        # Handle \numberline if present
-        num_match = re.match(r'\\numberline\s*{(?P<num>[^}]+)}\s*(?P<title>.*)', raw_title)
+        entry_type, raw_title, page = args
+        # Clean up title, handle \numberline
+        num_match = re.search(r'\\numberline\s*{([^}]*)}', raw_title)
+        title_text = re.sub(r'\\numberline\s*{[^}]*}', '', raw_title).strip()
         if num_match:
-            title_text = num_match.group('title').strip()
-            title = f"{num_match.group('num')} {title_text}"
+            title = f"{num_match.group(1)} {title_text}"
         else:
-            title = raw_title.strip()
-
+            title = title_text
+        # Indentation based on type
         indent = '    ' * indent_map.get(entry_type, 0)
         lines_out.append(f"{indent}{title} ..... {page}")
-
     return "\n".join(lines_out)
 
 

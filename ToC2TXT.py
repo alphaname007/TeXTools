@@ -5,28 +5,54 @@ import streamlit as st
 def parse_toc(content: str) -> str:
     """
     Parse LaTeX .toc content and return a plain-text representation.
+    Supports nested braces and extracts numbering from \numberline commands.
     """
-    pattern = re.compile(r'\\contentsline\s*{(?P<type>[^}]+)}\s*{(?P<raw_title>[^}]*)}\s*{(?P<page>[^}]*)}')
     indent_map = {'section': 0, 'subsection': 1, 'subsubsection': 2}
+
+    def extract_group(s: str, start: int):
+        # Extract text inside matching braces starting at s[start] == '{'
+        if s[start] != '{':
+            raise ValueError("Expected '{' at position {}".format(start))
+        depth = 0
+        for i in range(start, len(s)):
+            if s[i] == '{':
+                depth += 1
+            elif s[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    return s[start+1:i], i + 1
+        raise ValueError("No matching '}' found")
+
     lines_out = []
     for line in content.splitlines():
-        match = pattern.match(line)
-        if not match:
+        l = line.strip()
+        if not l.startswith(r'\\contentsline'):
             continue
-        entry_type = match.group('type')
-        raw_title = match.group('raw_title')
-        page = match.group('page')
-        # Extract numbering if present
-        num_match = re.search(r'\\numberline\s*{(?P<num>[^}]*)}', raw_title)
-        # Remove \numberline command to get clean title
-        title_text = re.sub(r'\\numberline\s*{[^}]*}', '', raw_title).strip()
+        try:
+            # Parse the four brace groups: type, raw_title, page, label
+            pos = l.find('{')
+            entry_type, pos = extract_group(l, pos)
+            # Skip to next group
+            while pos < len(l) and l[pos].isspace():
+                pos += 1
+            raw_title, pos = extract_group(l, pos)
+            while pos < len(l) and l[pos].isspace():
+                pos += 1
+            page, pos = extract_group(l, pos)
+        except Exception:
+            continue
+
+        # Handle \numberline if present
+        num_match = re.match(r'\\numberline\s*{(?P<num>[^}]+)}\s*(?P<title>.*)', raw_title)
         if num_match:
+            title_text = num_match.group('title').strip()
             title = f"{num_match.group('num')} {title_text}"
         else:
-            title = title_text
-        # Indent based on section level
+            title = raw_title.strip()
+
         indent = '    ' * indent_map.get(entry_type, 0)
         lines_out.append(f"{indent}{title} ..... {page}")
+
     return "\n".join(lines_out)
 
 

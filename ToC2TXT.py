@@ -1,52 +1,41 @@
 import re
 import streamlit as st
 
-
 def parse_toc(content: str) -> str:
     """
     Parse LaTeX .toc content and return a plain-text representation.
     This handles nested braces by matching braces manually for each argument.
     """
-    lines_out = []
-    indent_map = {'chapter': 0, 'section': 0, 'subsection': 1, 'subsubsection': 2}
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line.startswith(r'\\contentsline'):
+    output_lines = []
+
+    line_regex = re.compile(r'\\contentsline \{(.*?)\}\{(.*?)\}\{(.*?)\}')
+    
+    numberline_regex = re.compile(r'\\numberline \{(.*?)\}(.*)')
+
+    for line in toc_content.strip().split('\n'):
+        if not line.startswith('\\contentsline'):
             continue
-        # Extract the first three brace-delimited arguments robustly
-        args = []
-        idx = line.find('{', line.find('\\contentsline') + len('\\contentsline'))
-        while len(args) < 3 and idx != -1:
-            brace_level = 0
-            start = None
-            for j in range(idx, len(line)):
-                if line[j] == '{':
-                    if brace_level == 0:
-                        start = j + 1
-                    brace_level += 1
-                elif line[j] == '}':
-                    brace_level -= 1
-                    if brace_level == 0 and start is not None:
-                        end = j
-                        break
+
+        match = line_regex.match(line)
+        if match:
+            level, title_raw, page = match.groups()
+
+            indent = ""
+            if level == 'subsection':
+                indent = "  "
+            elif level == 'subsubsection':
+                indent = "    "
+
+            number_match = numberline_regex.match(title_raw)
+            if number_match:
+                number, text = number_match.groups()
+                full_title = f"{number} {text.strip()}"
             else:
-                break  # unmatched braces
-            args.append(line[start:end])
-            idx = line.find('{', end + 1)
-        if len(args) < 3:
-            continue
-        entry_type, raw_title, page = args
-        # Clean up title, handle \numberline
-        num_match = re.search(r'\\numberline\s*{([^}]*)}', raw_title)
-        title_text = re.sub(r'\\numberline\s*{[^}]*}', '', raw_title).strip()
-        if num_match:
-            title = f"{num_match.group(1)} {title_text}"
-        else:
-            title = title_text
-        # Indentation based on type
-        indent = '    ' * indent_map.get(entry_type, 0)
-        lines_out.append(f"{indent}{title} ..... {page}")
-    return "\n".join(lines_out)
+                full_title = title_raw.strip()
+            
+            output_lines.append(f"{indent}{full_title}\t{page}")
+
+    return "\n".join(output_lines)
 
 
 def main():
